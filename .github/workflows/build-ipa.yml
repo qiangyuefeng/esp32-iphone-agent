@@ -1,6 +1,5 @@
 name: Build IPA (unsigned)
 
-# 手动点按钮触发；推到 main 也会自动跑
 on:
   workflow_dispatch:
   push:
@@ -8,56 +7,31 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: ios
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      # 生成一个本地配置：不填开发团队、不启用付费的热点权限。
-      # 签名在你本地用 Sideloadly 完成，所以这里全部留空即可。
-      - name: Create Local.xcconfig
-        working-directory: ios
-        run: |
-          cat > Config/Local.xcconfig <<'EOF'
-          DEVELOPMENT_TEAM =
-          IA_BUNDLE_ID = com.example.esp32agent
-          IA_ENTITLEMENTS =
-          IA_WIDGET_ENTITLEMENTS =
-          IA_PRESET_BASE_URL =
-          IA_PRESET_MODEL =
-          IA_PRESET_KEY =
-          EOF
-          echo "----- Local.xcconfig -----"; cat Config/Local.xcconfig
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: Build (no code signing)
-        working-directory: ios
+      # 仓库里已有 IPhoneAgent.xcodeproj，直接构建，不需要 XcodeGen。
+      # 不创建 Local.xcconfig：使用 Shared.xcconfig 默认值（无付费权限、示例 bundle id）。
+      # 签名在本地用 Sideloadly 完成，所以这里关闭代码签名。
+      - name: Build (unsigned, device)
         run: |
           set -o pipefail
-          xcodebuild \
-            -project IPhoneAgent.xcodeproj \
+          xcodebuild build \
             -scheme IPhoneAgent \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGN_ENTITLEMENTS="" \
-            clean build
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Package into .ipa
-        working-directory: ios
         run: |
           APP="build/Build/Products/Release-iphoneos/IPhoneAgent.app"
           if [ ! -d "$APP" ]; then
