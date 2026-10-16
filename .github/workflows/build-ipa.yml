@@ -1,0 +1,77 @@
+name: Build IPA (unsigned)
+
+# 手动点按钮触发；推到 main 也会自动跑
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # 生成一个本地配置：不填开发团队、不启用付费的热点权限。
+      # 签名在你本地用 Sideloadly 完成，所以这里全部留空即可。
+      - name: Create Local.xcconfig
+        working-directory: ios
+        run: |
+          cat > Config/Local.xcconfig <<'EOF'
+          DEVELOPMENT_TEAM =
+          IA_BUNDLE_ID = com.example.esp32agent
+          IA_ENTITLEMENTS =
+          IA_WIDGET_ENTITLEMENTS =
+          IA_PRESET_BASE_URL =
+          IA_PRESET_MODEL =
+          IA_PRESET_KEY =
+          EOF
+          echo "----- Local.xcconfig -----"; cat Config/Local.xcconfig
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build (no code signing)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project IPhoneAgent.xcodeproj \
+            -scheme IPhoneAgent \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            clean build
+
+      - name: Package into .ipa
+        working-directory: ios
+        run: |
+          APP="build/Build/Products/Release-iphoneos/IPhoneAgent.app"
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: app not found at $APP"; ls -R build/Build/Products || true; exit 1
+          fi
+          rm -rf Payload IPhoneAgent.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -r -y IPhoneAgent.ipa Payload >/dev/null
+          echo "----- built ipa -----"; ls -la IPhoneAgent.ipa
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPhoneAgent-ipa
+          path: ios/IPhoneAgent.ipa
+          if-no-files-found: error
